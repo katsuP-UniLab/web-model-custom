@@ -6,12 +6,15 @@
 */
 
 // UI Elements
+const themeOptionBtns = document.querySelectorAll(".theme-option");
 const modelUrlInput = document.getElementById("modelUrl");
 const loadModelBtn = document.getElementById("loadModelBtn");
+const modelFileInput = document.getElementById("modelFileInput");
 const modelStatus = document.getElementById("modelStatus");
 
 const labelUrlInput = document.getElementById("labelUrl");
 const fetchLabelsBtn = document.getElementById("fetchLabelsBtn");
+const labelFileInput = document.getElementById("labelFileInput");
 const labelsTextarea = document.getElementById("labelsTextarea");
 const applyLabelsBtn = document.getElementById("applyLabelsBtn");
 const labelStatus = document.getElementById("labelStatus");
@@ -36,27 +39,27 @@ function setStatus(element, text, type = "normal") {
 }
 
 // ==================================================
-// 1. Model Loading
+// 1. Model Loading (URL or File Upload)
 // ==================================================
-async function loadModel(url) {
-    if (!url || !url.trim()) {
-        setStatus(modelStatus, "Please enter a valid model URL or path.", "error");
+async function loadModel(source, displayName) {
+    if (!source) {
+        setStatus(modelStatus, "Please enter a valid model URL or upload a file.", "error");
         return;
     }
 
-    const trimmedUrl = url.trim();
-    setStatus(modelStatus, `Loading model from ${trimmedUrl}...`, "loading");
+    const name = displayName || (typeof source === "string" ? source.trim() : "uploaded model");
+    setStatus(modelStatus, `Loading model (${name})...`, "loading");
     loadModelBtn.disabled = true;
 
     try {
-        session = await ort.InferenceSession.create(trimmedUrl, {
+        session = await ort.InferenceSession.create(source, {
             executionProviders: ["wasm"]
         });
 
         const inputName = session.inputNames[0] || "input";
         const outputName = session.outputNames[0] || "output";
-        setStatus(modelStatus, `Model loaded successfully! (Input: ${inputName}, Output: ${outputName})`, "success");
-        console.log("Model loaded successfully:", trimmedUrl, session);
+        setStatus(modelStatus, `Model loaded successfully! (${name} | Input: ${inputName}, Output: ${outputName})`, "success");
+        console.log("Model loaded successfully:", name, session);
 
         // If an image is already loaded, re-run inference
         if (lastImage) {
@@ -77,6 +80,20 @@ loadModelBtn.addEventListener("click", () => {
 modelUrlInput.addEventListener("keydown", (e) => {
     if (e.key === "Enter") {
         loadModel(modelUrlInput.value);
+    }
+});
+
+modelFileInput.addEventListener("change", async (event) => {
+    const file = event.target.files[0];
+    if (!file) return;
+
+    setStatus(modelStatus, `Reading ${file.name}...`, "loading");
+    try {
+        const buffer = await file.arrayBuffer();
+        await loadModel(buffer, file.name);
+    } catch (err) {
+        console.error("Error reading model file:", err);
+        setStatus(modelStatus, `Failed to read model file: ${err.message}`, "error");
     }
 });
 
@@ -163,6 +180,24 @@ fetchLabelsBtn.addEventListener("click", () => {
 labelUrlInput.addEventListener("keydown", (e) => {
     if (e.key === "Enter") {
         fetchLabelsFromUrl(labelUrlInput.value);
+    }
+});
+
+labelFileInput.addEventListener("change", async (event) => {
+    const file = event.target.files[0];
+    if (!file) return;
+
+    setStatus(labelStatus, `Reading ${file.name}...`, "loading");
+    try {
+        const text = await file.text();
+        labelsTextarea.value = text;
+        const success = parseLabelsFromText(text);
+        if (success && lastImage && lastBoxes.length > 0) {
+            redrawCanvas();
+        }
+    } catch (err) {
+        console.error("Error reading label file:", err);
+        setStatus(labelStatus, `Failed to read label file: ${err.message}`, "error");
     }
 });
 
@@ -352,6 +387,10 @@ function calculateIoU(a, b) {
 // 7. Draw Bounding Boxes
 // ==================================================
 function drawBoxes(boxes) {
+    const styles = getComputedStyle(document.documentElement);
+    const boxColor = styles.getPropertyValue("--ctp-green").trim() || "#a6da95";
+    const tagTextColor = styles.getPropertyValue("--btn-text").trim() || "#181926";
+
     ctx.lineWidth = 3;
     ctx.font = "16px sans-serif";
 
@@ -368,7 +407,7 @@ function drawBoxes(boxes) {
         const caption = `${className} (${scorePercent}%)`;
 
         // Box border
-        ctx.strokeStyle = "#22c55e";
+        ctx.strokeStyle = boxColor;
         ctx.strokeRect(box.x, box.y, box.width, box.height);
 
         // Label tag background
@@ -377,19 +416,51 @@ function drawBoxes(boxes) {
         const textHeight = 18;
         const tagY = Math.max(0, box.y - textHeight - 4);
 
-        ctx.fillStyle = "#22c55e";
+        ctx.fillStyle = boxColor;
         ctx.fillRect(box.x, tagY, textMetrics.width + 8, textHeight + 4);
 
         // Label text
-        ctx.fillStyle = "#000000";
+        ctx.fillStyle = tagTextColor;
         ctx.fillText(caption, box.x + 4, tagY + textHeight - 1);
     });
 }
 
 // ==================================================
+// 8. Theme Toggler (Catppuccin Macchiato & Latte)
+// ==================================================
+function setTheme(theme) {
+    document.documentElement.setAttribute("data-theme", theme);
+    localStorage.setItem("catppuccin-theme", theme);
+
+    document.querySelectorAll(".theme-option").forEach(btn => {
+        const isActive = btn.dataset.themeTarget === theme;
+        btn.classList.toggle("active", isActive);
+        btn.setAttribute("aria-pressed", isActive ? "true" : "false");
+    });
+
+    if (lastImage && lastBoxes.length > 0) {
+        redrawCanvas();
+    }
+}
+
+document.querySelectorAll(".theme-option").forEach(btn => {
+    btn.addEventListener("click", () => {
+        const targetTheme = btn.dataset.themeTarget;
+        if (targetTheme) {
+            setTheme(targetTheme);
+        }
+    });
+});
+
+// ==================================================
 // Initial Auto-Load
 // ==================================================
 window.addEventListener("DOMContentLoaded", () => {
+    // Restore or detect preferred theme
+    const savedTheme = localStorage.getItem("catppuccin-theme") || 
+        (window.matchMedia && window.matchMedia("(prefers-color-scheme: light)").matches ? "latte" : "macchiato");
+    setTheme(savedTheme);
+
     // Attempt to load default labels
     fetchLabelsFromUrl(labelUrlInput.value);
 

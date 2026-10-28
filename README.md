@@ -8,12 +8,14 @@ This application supports loading custom ONNX models from any URL or local path,
 
 ## Features
 
-- **Custom Model URL**: Load any compatible YOLO ONNX model from a remote URL or local path at runtime.
+- **Custom Model URL / Upload**: Load ONNX models via remote URL, local path, or direct file upload (`.onnx`).
 - **Dynamic Labels**:
   - **Fetch from URL**: Retrieve label mappings directly from a remote or local `labels.json`.
+  - **Upload File**: Upload `.json` or `.txt` label files directly.
   - **Textarea Editor**: Paste or edit class names as a JSON array or JSON key-value map, with instant canvas re-rendering.
 - **Client-Side Inference**: Runs entirely in the client browser using WebAssembly (`wasm`).
 - **Interactive Canvas**: Real-time bounding box visualization with confidence scores.
+- **Catppuccin Themes**: Styled with Catppuccin Macchiato (dark) and Latte (light), with dynamic theme toggle and auto-detection.
 
 ---
 
@@ -47,16 +49,15 @@ Open the printed localhost URL in your browser.
 ## How to Use
 
 ### 1. Model Configuration
-- Enter the URL or relative path to your ONNX model in the **ONNX Model URL / Path** input field.
-  - Local example: `best.onnx`
-  - Remote example: `https://your-domain.com/models/yolov11-custom.onnx`
-- Click **Load Model** (or press Enter). The status indicator will verify when the model is initialized.
+- **Load via URL or path**: Enter URL or path in input field (e.g., `best.onnx` or `https://example.com/best.onnx`) and click **Load Model**.
+- **Upload directly**: Click **Choose File** under "Or upload .onnx file directly" to load a local `.onnx` model into memory without placing it in the server folder.
 
 ### 2. Labels Configuration
-You can configure labels using either method:
+You can configure labels using three methods:
 
 - **Option A (Fetch from URL)**: Enter the URL pointing to a JSON file (e.g., `labels.json` or `https://your-domain.com/labels.json`) and click **Fetch URL**. The fetched labels will automatically populate the textarea.
-- **Option B (Textarea)**: Paste or type your labels directly into the textarea and click **Apply Textarea Labels**.
+- **Option B (Upload File)**: Upload a local `.json` or `.txt` label file directly. The contents will load and sync into the textarea.
+- **Option C (Textarea)**: Paste or type your labels directly into the textarea and click **Apply Textarea Labels**.
 
 #### Supported Label Formats:
 1. **JSON Array** (indexed by position `0, 1, 2...`):
