@@ -1,641 +1,398 @@
 /*
 ==================================================
  YOLOv11 Object Detection using ONNX Runtime Web
-
- Function:
- - Load YOLOv11 ONNX model
- - Process uploaded image
- - Run inference
- - Decode prediction result
- - Apply NMS
- - Draw bounding boxes
-
- Model:
- YOLOv11 + ONNX Runtime Web
-
+ Dynamic Model & Labels Loader
 ==================================================
 */
 
+// UI Elements
+const modelUrlInput = document.getElementById("modelUrl");
+const loadModelBtn = document.getElementById("loadModelBtn");
+const modelStatus = document.getElementById("modelStatus");
 
-// ==================================================
-// 1. Initialize HTML Elements
-// ==================================================
+const labelUrlInput = document.getElementById("labelUrl");
+const fetchLabelsBtn = document.getElementById("fetchLabelsBtn");
+const labelsTextarea = document.getElementById("labelsTextarea");
+const applyLabelsBtn = document.getElementById("applyLabelsBtn");
+const labelStatus = document.getElementById("labelStatus");
 
-// Input สำหรับเลือกรูปภาพ
 const imageInput = document.getElementById("imageInput");
-
-// Canvas สำหรับแสดงผล Detection
+const inferenceStatus = document.getElementById("inferenceStatus");
 const canvas = document.getElementById("canvas");
-
-// Context สำหรับวาดภาพและ Bounding Box
 const ctx = canvas.getContext("2d");
 
-
-// ตัวแปรเก็บ ONNX Model Session
+// Runtime State
 let session = null;
-
+let labels = [];
+let lastImage = null;
+let lastBoxes = [];
 
 // ==================================================
-// 2. Load YOLOv11 ONNX Model
+// Status Helpers
 // ==================================================
-
-async function loadModel(){
-
-
-    /*
-      โหลดไฟล์ best.onnx
-
-      executionProviders:
-      - wasm ใช้ CPU ของ Browser
-
-      สามารถเปลี่ยนเป็น webgpu
-      เพื่อใช้ GPU ได้
-    */
-
-    session =
-    await ort.InferenceSession.create(
-
-        "best.onnx",
-
-        {
-            executionProviders:[
-                "wasm"
-            ]
-        }
-
-    );
-
-
-    console.log(
-        "YOLOv11 ONNX Model Loaded"
-    );
-
+function setStatus(element, text, type = "normal") {
+    element.textContent = text;
+    element.className = `status-badge ${type}`;
 }
 
-// เรียกโหลดโมเดลทันที
-loadModel();
-
-
 // ==================================================
-// 3. Image Upload & Object Detection
+// 1. Model Loading
 // ==================================================
-
-
-imageInput.addEventListener(
-"change",
-async(event)=>{
-
-    const file =
-    event.target.files[0];
-
-    if(!file)
+async function loadModel(url) {
+    if (!url || !url.trim()) {
+        setStatus(modelStatus, "Please enter a valid model URL or path.", "error");
         return;
-
-    const img =
-    new Image();
-
-    img.onload =
-    async()=>{
-
-
-        /*
-          กำหนดขนาด Canvas
-          ให้เท่ากับ Input ของ YOLO
-
-          YOLOv11 ใช้ 640x640
-        */
-
-        canvas.width = 640;
-        canvas.height = 640;
-
-
-
-        // แสดงภาพต้นฉบับ
-        ctx.drawImage(
-            img,
-            0,
-            0,
-            640,
-            640
-        );
-
-
-        // -------------------------------
-        // Prepare Image Tensor
-        // -------------------------------
-
-        const tensor =
-        preprocessImage(img);
-
-        // -------------------------------
-        // Run YOLO Model
-        // -------------------------------
-
-        const feeds = {};
-
-        /*
-          ใช้ชื่อ Input
-          จาก ONNX Model
-
-        */
-
-        feeds[
-            session.inputNames[0]
-        ] = tensor;
-
-        const result =
-        await session.run(feeds);
-
-        /*
-          รับ Output จาก YOLO
-
-          เช่น:
-          output0
-        */
-
-        const outputTensor =
-        result[
-            session.outputNames[0]
-        ];
-
-        // -------------------------------
-        // Convert Output to Boxes
-        // -------------------------------
-
-        let boxes =
-        postprocessOutput(
-            outputTensor,
-            0.35
-        );
-
-        // -------------------------------
-        // Remove Duplicate Boxes
-        // -------------------------------
-
-        boxes =
-        nonMaxSuppression(
-            boxes,
-            0.35
-        );
-
-        // -------------------------------
-        // Draw Result
-        // -------------------------------
-
-        ctx.clearRect(
-            0,
-            0,
-            640,
-            640
-        );
-
-        ctx.drawImage(
-            img,
-            0,
-            0,
-            640,
-            640
-        );
-
-        drawBoxes(boxes);
-
-    };
-
-    // Load image file
-
-    img.src =
-    URL.createObjectURL(file);
-
-});
-
-
-
-// ==================================================
-// 4. Image Preprocessing
-// Convert Image --> Tensor
-// ==================================================
-
-
-function preprocessImage(img){
-
-
-    const size = 640;
-
-    // สร้าง Temporary Canvas
-
-    const tempCanvas =
-    document.createElement("canvas");
-
-    tempCanvas.width=size;
-    tempCanvas.height=size;
-
-    const tempCtx =
-    tempCanvas.getContext("2d");
-
-    // Resize image
-
-    tempCtx.drawImage(
-        img,
-        0,
-        0,
-        size,
-        size
-    );
-
-    // อ่าน Pixel
-
-    const imageData =
-    tempCtx.getImageData(
-        0,
-        0,
-        size,
-        size
-    );
-
-    const data =
-    imageData.data;
-
-    /*
-      YOLO Input Format
-
-      Original:
-
-      H x W x RGB
-      Convert:
-
-      [1,3,640,640]
-
-      Channel:
-      R
-      G
-      B
-
-    */
-
-    const float32 =
-    new Float32Array(
-        3*size*size
-    );
-
-    for(
-        let i=0;
-        i<size*size;
-        i++
-    ){
-
-        // Red Channel
-
-        float32[i]
-        =
-        data[i*4]/255;
-
-        // Green Channel
-
-        float32[
-            i+size*size
-        ]
-        =
-        data[i*4+1]/255;
-
-        // Blue Channel
-
-        float32[
-            i+2*size*size
-        ]
-        =
-        data[i*4+2]/255;
-
     }
 
+    const trimmedUrl = url.trim();
+    setStatus(modelStatus, `Loading model from ${trimmedUrl}...`, "loading");
+    loadModelBtn.disabled = true;
 
-    return new ort.Tensor(
+    try {
+        session = await ort.InferenceSession.create(trimmedUrl, {
+            executionProviders: ["wasm"]
+        });
 
-        "float32",
+        const inputName = session.inputNames[0] || "input";
+        const outputName = session.outputNames[0] || "output";
+        setStatus(modelStatus, `Model loaded successfully! (Input: ${inputName}, Output: ${outputName})`, "success");
+        console.log("Model loaded successfully:", trimmedUrl, session);
 
-        float32,
-
-        [
-            1,
-            3,
-            size,
-            size
-        ]
-
-    );
-
-
+        // If an image is already loaded, re-run inference
+        if (lastImage) {
+            runInference(lastImage);
+        }
+    } catch (err) {
+        console.error("Error loading model:", err);
+        setStatus(modelStatus, `Failed to load model: ${err.message}`, "error");
+    } finally {
+        loadModelBtn.disabled = false;
+    }
 }
 
+loadModelBtn.addEventListener("click", () => {
+    loadModel(modelUrlInput.value);
+});
+
+modelUrlInput.addEventListener("keydown", (e) => {
+    if (e.key === "Enter") {
+        loadModel(modelUrlInput.value);
+    }
+});
 
 // ==================================================
-// 5. YOLO Output Processing
-// Convert Prediction --> Bounding Box
+// 2. Labels Management
 // ==================================================
+function parseLabelsFromText(rawText) {
+    const text = rawText.trim();
+    if (!text) {
+        labels = [];
+        setStatus(labelStatus, "No labels provided.", "error");
+        return false;
+    }
 
-function postprocessOutput(
-    output,
-    threshold=0.35
-){
+    try {
+        // Attempt 1: Parse JSON
+        const parsed = JSON.parse(text);
+        if (Array.isArray(parsed)) {
+            labels = parsed;
+            setStatus(labelStatus, `Loaded ${labels.length} classes from JSON array.`, "success");
+            return true;
+        } else if (typeof parsed === "object" && parsed !== null) {
+            labels = parsed;
+            const count = Object.keys(labels).length;
+            setStatus(labelStatus, `Loaded ${count} classes from JSON object.`, "success");
+            return true;
+        }
+    } catch (err) {
+        // Attempt 2: Fallback to newline-separated list
+        const lines = text.split("\n").map(l => l.trim()).filter(l => l.length > 0);
+        if (lines.length > 0) {
+            labels = lines;
+            // Update textarea to valid JSON representation
+            labelsTextarea.value = JSON.stringify(labels, null, 2);
+            setStatus(labelStatus, `Parsed ${labels.length} classes (converted to JSON array).`, "success");
+            return true;
+        }
+        setStatus(labelStatus, `Failed to parse labels: ${err.message}`, "error");
+        return false;
+    }
 
-    const data =
-    output.data;
+    return false;
+}
 
-    const dims =
-    output.dims;
+async function fetchLabelsFromUrl(url) {
+    if (!url || !url.trim()) {
+        setStatus(labelStatus, "Please enter a valid labels URL.", "error");
+        return;
+    }
 
+    const trimmedUrl = url.trim();
+    setStatus(labelStatus, `Fetching labels from ${trimmedUrl}...`, "loading");
+    fetchLabelsBtn.disabled = true;
 
-    /*
-      YOLOv11 Output:
-
-      [1,7,8400]
-
-
-      7 =
-      x,y,w,h
-      +
-      3 classes
-
-    */
-
-    const numAttrs =
-    dims[1];
-
-    const numBoxes =
-    dims[2];
-
-    const boxes=[];
-
-    for(
-        let i=0;
-        i<numBoxes;
-        i++
-    ){
-
-        // Bounding Box
-
-        const x =
-        data[i];
-
-        const y =
-        data[numBoxes+i];
-
-        const w =
-        data[numBoxes*2+i];
-
-
-        const h =
-        data[numBoxes*3+i];
-
-
-        // Find Best Class
-
-        let bestScore=0;
-
-        let classId=0;
-
-
-        for(
-            let c=4;
-            c<numAttrs;
-            c++
-        ){
-
-            const score =
-            data[numBoxes*c+i];
-
-            if(score>bestScore){
-
-                bestScore=score;
-
-                classId=c-4;
-
-            }
-
+    try {
+        const response = await fetch(trimmedUrl);
+        if (!response.ok) {
+            throw new Error(`HTTP ${response.status} ${response.statusText}`);
         }
 
-        // Confidence Filter
+        const data = await response.json();
+        labels = data;
+        labelsTextarea.value = JSON.stringify(data, null, 2);
 
-        if(
-            bestScore<threshold
-        )
-        continue;
+        const count = Array.isArray(data) ? data.length : Object.keys(data).length;
+        setStatus(labelStatus, `Loaded ${count} classes from URL.`, "success");
+
+        // Re-draw if boxes exist
+        if (lastImage && lastBoxes.length > 0) {
+            redrawCanvas();
+        }
+    } catch (err) {
+        console.error("Error fetching labels:", err);
+        setStatus(labelStatus, `Failed to fetch labels: ${err.message}`, "error");
+    } finally {
+        fetchLabelsBtn.disabled = false;
+    }
+}
+
+fetchLabelsBtn.addEventListener("click", () => {
+    fetchLabelsFromUrl(labelUrlInput.value);
+});
+
+labelUrlInput.addEventListener("keydown", (e) => {
+    if (e.key === "Enter") {
+        fetchLabelsFromUrl(labelUrlInput.value);
+    }
+});
+
+applyLabelsBtn.addEventListener("click", () => {
+    const success = parseLabelsFromText(labelsTextarea.value);
+    if (success && lastImage && lastBoxes.length > 0) {
+        redrawCanvas();
+    }
+});
+
+// ==================================================
+// 3. Image Upload & Inference Pipeline
+// ==================================================
+imageInput.addEventListener("change", async (event) => {
+    const file = event.target.files[0];
+    if (!file) return;
+
+    const img = new Image();
+    img.onload = () => {
+        lastImage = img;
+        runInference(img);
+    };
+    img.src = URL.createObjectURL(file);
+});
+
+async function runInference(img) {
+    if (!session) {
+        setStatus(inferenceStatus, "Please load an ONNX model before running inference.", "error");
+        canvas.width = 640;
+        canvas.height = 640;
+        ctx.clearRect(0, 0, 640, 640);
+        ctx.drawImage(img, 0, 0, 640, 640);
+        return;
+    }
+
+    setStatus(inferenceStatus, "Running inference...", "loading");
+
+    try {
+        canvas.width = 640;
+        canvas.height = 640;
+        ctx.drawImage(img, 0, 0, 640, 640);
+
+        // Preprocess
+        const tensor = preprocessImage(img);
+
+        // Run model
+        const feeds = {};
+        feeds[session.inputNames[0]] = tensor;
+
+        const startTime = performance.now();
+        const result = await session.run(feeds);
+        const inferenceTime = (performance.now() - startTime).toFixed(1);
+
+        const outputTensor = result[session.outputNames[0]];
+
+        // Postprocess & NMS
+        let boxes = postprocessOutput(outputTensor, 0.35);
+        boxes = nonMaxSuppression(boxes, 0.35);
+        lastBoxes = boxes;
+
+        // Render
+        redrawCanvas();
+
+        setStatus(inferenceStatus, `Detected ${boxes.length} objects in ${inferenceTime} ms.`, "success");
+    } catch (err) {
+        console.error("Inference error:", err);
+        setStatus(inferenceStatus, `Inference error: ${err.message}`, "error");
+    }
+}
+
+function redrawCanvas() {
+    if (!lastImage) return;
+
+    ctx.clearRect(0, 0, 640, 640);
+    ctx.drawImage(lastImage, 0, 0, 640, 640);
+    drawBoxes(lastBoxes);
+}
+
+// ==================================================
+// 4. Preprocessing: Image -> Tensor [1, 3, 640, 640]
+// ==================================================
+function preprocessImage(img) {
+    const size = 640;
+    const tempCanvas = document.createElement("canvas");
+    tempCanvas.width = size;
+    tempCanvas.height = size;
+
+    const tempCtx = tempCanvas.getContext("2d");
+    tempCtx.drawImage(img, 0, 0, size, size);
+
+    const imageData = tempCtx.getImageData(0, 0, size, size);
+    const data = imageData.data;
+
+    const float32 = new Float32Array(3 * size * size);
+
+    for (let i = 0; i < size * size; i++) {
+        // Red Channel
+        float32[i] = data[i * 4] / 255.0;
+        // Green Channel
+        float32[i + size * size] = data[i * 4 + 1] / 255.0;
+        // Blue Channel
+        float32[i + 2 * size * size] = data[i * 4 + 2] / 255.0;
+    }
+
+    return new ort.Tensor("float32", float32, [1, 3, size, size]);
+}
+
+// ==================================================
+// 5. Postprocessing: Output -> Bounding Boxes
+// ==================================================
+function postprocessOutput(output, threshold = 0.35) {
+    const data = output.data;
+    const dims = output.dims; // e.g. [1, numAttrs, numBoxes]
+
+    const numAttrs = dims[1];
+    const numBoxes = dims[2];
+    const boxes = [];
+
+    for (let i = 0; i < numBoxes; i++) {
+        const x = data[i];
+        const y = data[numBoxes + i];
+        const w = data[numBoxes * 2 + i];
+        const h = data[numBoxes * 3 + i];
+
+        let bestScore = 0;
+        let classId = 0;
+
+        for (let c = 4; c < numAttrs; c++) {
+            const score = data[numBoxes * c + i];
+            if (score > bestScore) {
+                bestScore = score;
+                classId = c - 4;
+            }
+        }
+
+        if (bestScore < threshold) continue;
 
         boxes.push({
-
-            x:x-w/2,
-
-            y:y-h/2,
-
-            width:w,
-
-            height:h,
-
-            score:bestScore,
-
-            classId:classId
-
+            x: x - w / 2,
+            y: y - h / 2,
+            width: w,
+            height: h,
+            score: bestScore,
+            classId: classId
         });
     }
 
     return boxes;
-
 }
 
 // ==================================================
 // 6. Non-Max Suppression (NMS)
-// Remove Overlapping Boxes
 // ==================================================
+function nonMaxSuppression(boxes, iouThreshold = 0.35) {
+    boxes.sort((a, b) => b.score - a.score);
+    const selected = [];
 
-function nonMaxSuppression(
-    boxes,
-    iouThreshold=0.35
-){
-    // Sort confidence
-
-    boxes.sort(
-        (a,b)=>
-        b.score-a.score
-    );
-
-    const selected=[];
-
-    while(boxes.length){
-
-        // เลือกกล่องคะแนนสูงสุด
-
-        const current =
-        boxes.shift();
-
+    while (boxes.length) {
+        const current = boxes.shift();
         selected.push(current);
 
-        /*
-          ลบกล่องที่ซ้อนกันมาก
-
-          โดยใช้ IoU
-        */
-
-        boxes =
-        boxes.filter(box=>{
-
-            if(
-                box.classId
-                !==
-                current.classId
-            )
-            {
+        boxes = boxes.filter(box => {
+            if (box.classId !== current.classId) {
                 return true;
             }
-
-            return (
-                calculateIoU(
-                    current,
-                    box
-                )
-                <
-                iouThreshold
-            );
-
+            return calculateIoU(current, box) < iouThreshold;
         });
-
     }
 
     return selected;
 }
 
+function calculateIoU(a, b) {
+    const x1 = Math.max(a.x, b.x);
+    const y1 = Math.max(a.y, b.y);
+    const x2 = Math.min(a.x + a.width, b.x + b.width);
+    const y2 = Math.min(a.y + a.height, b.y + b.height);
 
-// ==================================================
-// Calculate IoU
-// ==================================================
+    const intersection = Math.max(0, x2 - x1) * Math.max(0, y2 - y1);
+    const areaA = a.width * a.height;
+    const areaB = b.width * b.height;
 
-function calculateIoU(a,b){
-
-    const x1 =
-    Math.max(
-        a.x,
-        b.x
-    );
-
-    const y1 =
-    Math.max(
-        a.y,
-        b.y
-    );
-
-    const x2 =
-    Math.min(
-        a.x+a.width,
-        b.x+b.width
-    );
-
-    const y2 =
-    Math.min(
-        a.y+a.height,
-        b.y+b.height
-    );
-
-    const intersection =
-    Math.max(0,x2-x1)
-    *
-    Math.max(0,y2-y1);
-
-    const areaA =
-    a.width*a.height;
-
-    const areaB =
-    b.width*b.height;
-
-    return (
-        intersection /
-        (
-            areaA+
-            areaB-
-            intersection
-        )
-    );
-
+    return intersection / (areaA + areaB - intersection);
 }
-
 
 // ==================================================
 // 7. Draw Bounding Boxes
 // ==================================================
+function drawBoxes(boxes) {
+    ctx.lineWidth = 3;
+    ctx.font = "16px sans-serif";
 
-async function drawBoxes(boxes){
+    boxes.forEach(box => {
+        // Determine label text
+        let className = `Class ${box.classId}`;
+        if (Array.isArray(labels) && labels[box.classId] !== undefined) {
+            className = labels[box.classId];
+        } else if (typeof labels === "object" && labels !== null && labels[box.classId] !== undefined) {
+            className = labels[box.classId];
+        }
 
-    // Load class names
+        const scorePercent = (box.score * 100).toFixed(1);
+        const caption = `${className} (${scorePercent}%)`;
 
-    const response =
-    await fetch(
-        "labels.json"
-    );
+        // Box border
+        ctx.strokeStyle = "#22c55e";
+        ctx.strokeRect(box.x, box.y, box.width, box.height);
 
+        // Label tag background
+        ctx.font = "bold 14px sans-serif";
+        const textMetrics = ctx.measureText(caption);
+        const textHeight = 18;
+        const tagY = Math.max(0, box.y - textHeight - 4);
 
-    const labels =
-    await response.json();
+        ctx.fillStyle = "#22c55e";
+        ctx.fillRect(box.x, tagY, textMetrics.width + 8, textHeight + 4);
 
-
-
-
-    ctx.lineWidth=3;
-
-    ctx.font=
-    "18px Arial";
-
-
-
-
-    boxes.forEach(box=>{
-
-
-        // Draw rectangle
-
-        ctx.strokeStyle="red";
-
-
-        ctx.strokeRect(
-
-            box.x,
-
-            box.y,
-
-            box.width,
-
-            box.height
-
-        );
-
-
-
-
-
-        // Label Text
-
-        const label =
-
-        `${labels[box.classId]}
-        ${(box.score*100).toFixed(1)}%`;
-
-
-
-
-
-        ctx.fillStyle="red";
-
-
-        ctx.fillText(
-
-            label,
-
-            box.x,
-
-            box.y-5
-
-        );
-
-
-
+        // Label text
+        ctx.fillStyle = "#000000";
+        ctx.fillText(caption, box.x + 4, tagY + textHeight - 1);
     });
-
-
-
 }
+
+// ==================================================
+// Initial Auto-Load
+// ==================================================
+window.addEventListener("DOMContentLoaded", () => {
+    // Attempt to load default labels
+    fetchLabelsFromUrl(labelUrlInput.value);
+
+    // Attempt to load default model
+    loadModel(modelUrlInput.value);
+});

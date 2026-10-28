@@ -2,20 +2,151 @@
 <html lang="en">
 <head>
   <meta charset="UTF-8" />
-  <title>Dog Breed Detection</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>YOLO Web Object Detection</title>
   <script src="https://cdn.jsdelivr.net/npm/onnxruntime-web/dist/ort.min.js"></script>
   <script defer src="script.js"></script>
   <style>
-    body { font-family: sans-serif; text-align: center; margin-top: 20px; }
-    canvas { border: 1px solid #ccc; margin-top: 10px; }
-    #label { font-size: 18px; margin-top: 15px; color: green; }
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+      max-width: 800px;
+      margin: 20px auto;
+      padding: 0 15px;
+      color: #333;
+    }
+    h1 {
+      text-align: center;
+      margin-bottom: 20px;
+    }
+    .config-card {
+      background: #f8f9fa;
+      border: 1px solid #e2e8f0;
+      border-radius: 8px;
+      padding: 16px;
+      margin-bottom: 16px;
+    }
+    .config-card h2 {
+      font-size: 1.1rem;
+      margin-top: 0;
+      margin-bottom: 10px;
+    }
+    .form-group {
+      margin-bottom: 12px;
+    }
+    label {
+      display: block;
+      font-weight: 600;
+      font-size: 0.9rem;
+      margin-bottom: 4px;
+    }
+    .input-row {
+      display: flex;
+      gap: 8px;
+    }
+    input[type="text"], textarea {
+      flex: 1;
+      padding: 8px 12px;
+      border: 1px solid #ccc;
+      border-radius: 4px;
+      font-size: 14px;
+      box-sizing: border-box;
+    }
+    textarea {
+      width: 100%;
+      height: 90px;
+      font-family: monospace;
+      resize: vertical;
+    }
+    button {
+      padding: 8px 16px;
+      background-color: #0284c7;
+      color: white;
+      border: none;
+      border-radius: 4px;
+      cursor: pointer;
+      font-size: 14px;
+      font-weight: 500;
+      transition: background 0.2s;
+    }
+    button:hover {
+      background-color: #0369a1;
+    }
+    button:disabled {
+      background-color: #94a3b8;
+      cursor: not-allowed;
+    }
+    .status-badge {
+      display: inline-block;
+      margin-top: 6px;
+      font-size: 0.85rem;
+      color: #555;
+    }
+    .status-badge.success { color: #16a34a; font-weight: 600; }
+    .status-badge.error { color: #dc2626; font-weight: 600; }
+    .status-badge.loading { color: #d97706; font-weight: 600; }
+    .preview-section {
+      text-align: center;
+      margin-top: 20px;
+    }
+    canvas {
+      border: 1px solid #ccc;
+      border-radius: 4px;
+      max-width: 100%;
+      height: auto;
+      background-color: #111;
+      margin-top: 10px;
+    }
+    .file-input-wrapper {
+      margin-bottom: 15px;
+    }
   </style>
 </head>
 <body>
-  <h1>🐶 ทำนายสายพันธุ์สุนัขด้วย YOLO</h1>
-  <input type="file" id="imageInput" accept="image/*" />
-  <br>
-  <canvas id="canvas" width="640" height="640"></canvas>
-  <div id="label"></div>
+  <h1>🐶 YOLO Web Object Detection</h1>
+
+  <!-- Model Configuration -->
+  <div class="config-card">
+    <h2>1. Model Configuration</h2>
+    <div class="form-group">
+      <label for="modelUrl">ONNX Model URL / Path:</label>
+      <div class="input-row">
+        <input type="text" id="modelUrl" placeholder="e.g. best.onnx or https://example.com/best.onnx" value="best.onnx" />
+        <button id="loadModelBtn" type="button">Load Model</button>
+      </div>
+      <div id="modelStatus" class="status-badge">Model not loaded</div>
+    </div>
+  </div>
+
+  <!-- Label Configuration -->
+  <div class="config-card">
+    <h2>2. Labels Configuration</h2>
+    <div class="form-group">
+      <label for="labelUrl">Option A: Fetch Labels from URL (JSON):</label>
+      <div class="input-row">
+        <input type="text" id="labelUrl" placeholder="e.g. labels.json or https://example.com/labels.json" value="labels.json" />
+        <button id="fetchLabelsBtn" type="button">Fetch URL</button>
+      </div>
+    </div>
+    <div class="form-group">
+      <label for="labelsTextarea">Option B: Edit / Paste Labels (JSON array or text):</label>
+      <textarea id="labelsTextarea" placeholder='["french bulldog", "german shepherd", "golden retriever"]'></textarea>
+      <div style="margin-top: 6px;">
+        <button id="applyLabelsBtn" type="button">Apply Textarea Labels</button>
+      </div>
+      <div id="labelStatus" class="status-badge">Labels not loaded</div>
+    </div>
+  </div>
+
+  <!-- Inference Section -->
+  <div class="config-card preview-section">
+    <h2>3. Run Detection</h2>
+    <div class="file-input-wrapper">
+      <input type="file" id="imageInput" accept="image/*" />
+    </div>
+    <div id="inferenceStatus" class="status-badge"></div>
+    <div>
+      <canvas id="canvas" width="640" height="640"></canvas>
+    </div>
+  </div>
 </body>
 </html>
